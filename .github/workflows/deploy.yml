@@ -9,12 +9,15 @@ jobs:
   deploy:
     runs-on: self-hosted
 
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
-      # Step 1: Checkout code
+      # Checkout repo
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 2: Download Flyway (Windows version)
+      # Download Flyway (Windows version)
       - name: Install Flyway
         run: |
           Invoke-WebRequest `
@@ -23,7 +26,7 @@ jobs:
 
           Expand-Archive -Path flyway.zip -DestinationPath .
 
-      # Step 3: Run Flyway migrations
+      # Run Flyway migrations
       - name: Run Flyway Migration
         run: |
           .\flyway-9.22.3\flyway.cmd -X `
