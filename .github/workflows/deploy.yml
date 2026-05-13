@@ -5,30 +5,36 @@ on:
     branches:
       - Development
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout source code
       - name: Checkout Code
         uses: actions/checkout@v5
 
-      # Install Flyway
+      - name: Show Files
+        run: |
+          pwd
+          ls -R
+
       - name: Install Flyway
         run: |
           wget https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-linux-x64.tar.gz
           tar -xzf flyway-commandline-9.22.3-linux-x64.tar.gz
-          sudo ln -s $(pwd)/flyway-*/flyway /usr/local/bin/flyway
+          chmod +x flyway-9.22.3/flyway
+          sudo ln -s $(pwd)/flyway-9.22.3/flyway /usr/local/bin/flyway
 
-      # Execute migration
-      - name: Run Flyway Migrate
+      - name: Verify Flyway
         run: |
-          flyway -url="${{ secrets.DEVPOSTGRESCON }}" \
-                 -user="${{ secrets.POSTGREDEVUSERNAME }}" \
-                 -password="${{ secrets.POSTGREDEVPASS }}" \
-                 -locations="filesystem:./sql" \
-                 migrate
+          which flyway
+          flyway -v
+
+      - name: Run Migration
+        run: |
+          flyway -X \
+            -url="${{ secrets.DEVPOSTGRESCON }}" \
+            -user="${{ secrets.POSTGREDEVUSERNAME }}" \
+            -password="${{ secrets.POSTGREDEVPASS }}" \
+            -locations="filesystem:./sql" \
+            migrate
