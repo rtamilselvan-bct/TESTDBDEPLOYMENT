@@ -10,23 +10,25 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      # Checkout code
+      # Step 1: Checkout code
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Install Flyway
+      # Step 2: Download Flyway (Windows version)
       - name: Install Flyway
         run: |
-          wget https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-linux-x64.tar.gz
-          tar -xzf flyway-commandline-9.22.3-linux-x64.tar.gz
-          sudo ln -s $(pwd)/flyway-*/flyway /usr/local/bin/flyway
+          Invoke-WebRequest `
+            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-windows-x64.zip" `
+            -OutFile "flyway.zip"
 
-      # Run migrations
+          Expand-Archive -Path flyway.zip -DestinationPath .
+
+      # Step 3: Run Flyway migrations
       - name: Run Flyway Migration
         run: |
-          flyway -X \
-            -url="${{ secrets.DEVPOSTGRESCON }}" \
-            -user="${{ secrets.POSTGREDEVUSERNAME }}" \
-            -password="${{ secrets.POSTGREDEVPASS }}" \
-            -locations="filesystem:./sql" \
+          .\flyway-9.22.3\flyway.cmd -X `
+            -url="jdbc:postgresql://localhost:5432/postgres" `
+            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
+            -password="${{ secrets.POSTGREDEVPASS }}" `
+            -locations="filesystem:./sql" `
             migrate
