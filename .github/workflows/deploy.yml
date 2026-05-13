@@ -1,0 +1,32 @@
+name: Flyway Auto Deployment
+
+on:
+  push:
+    branches:
+      - Development   # ✅ Runs automatically when code is pushed to develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest   # ✅ Change to self-hosted if DB is internal
+
+    steps:
+      # ✅ Step 1: Checkout code from GitHub
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # ✅ Step 2: Install Flyway CLI
+      - name: Install Flyway
+        run: |
+          wget https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-linux-x64.tar.gz
+          tar -xzf flyway-commandline-9.22.3-linux-x64.tar.gz
+          sudo ln -s $(pwd)/flyway-*/flyway /usr/local/bin/flyway
+
+      # ✅ Step 3: Run Flyway migration
+      - name: Run Flyway Migrate
+        run: |
+          flyway -url="${{ secrets.DEVPOSTGRESCON }}" \
+                 -user="${{ secrets.POSTGREDEVUSERNAME }}" \
+                 -password="${{ secrets.POSTGREDEVPASS }}" \
+                 -locations="filesystem:./sql" \
+                 migrate
+``
