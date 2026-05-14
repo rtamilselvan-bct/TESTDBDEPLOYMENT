@@ -1,20 +1,23 @@
+# .github/workflows/deploy-db.yml
+
 name: PostgreSQL Auto Deployment
 
 on:
   push:
     branches:
-      - Development
+      - Development        # triggers when code merged here
 
-  workflow_dispatch:
+  workflow_dispatch:       # manual trigger too
 
 jobs:
 
-  # ═════════════════════════════════════
-  # JOB 1 — Validate SQL Scripts
+  # ══════════════════════════════════════
+  # JOB 1 — Notify & Validate
   # ══════════════════════════════════════
   validate:
     name: Validate SQL Scripts
-    runs-on: [self-hosted]   # ✅ FIXED
+    runs-on: self-hosted    # ✅ runs on YOUR machine
+  
 
     steps:
       - name: Checkout Code
@@ -37,20 +40,20 @@ jobs:
           C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
             -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
             -user="${{ secrets.POSTGREDEVUSERNAME }}" `
-            -password="${{ secrets.POSTGREDEVPASS }}" `
+            -password="${{ secrets.PG_PASSWOPOSTGREDEVPASSRD }}" `
             -locations="filesystem:./sql" `
             info
-
           Write-Host "✅ Validation complete"
 
   # ══════════════════════════════════════
-  # JOB 2 — Deploy to Production
+  # JOB 2 — Wait for Manager Approval
+  #         Then Execute on Production
   # ══════════════════════════════════════
   deploy-production:
     name: Deploy to PostgreSQL (Production)
-    runs-on: [self-hosted]   # ✅ FIXED
-    needs: validate
-    environment: Production
+    runs-on: self-hosted
+    needs: validate           # ✅ runs after validate passes
+    environment: Production   # ✅ waits for manager approval
 
     steps:
       - name: Checkout Code
@@ -67,12 +70,12 @@ jobs:
       - name: Run Flyway Migration
         shell: pwsh
         run: |
-          Write-Host "🚀 Running migration on PostgreSQL..."
+          Write-Host "🚀 Running migration on local PostgreSQL..."
 
           C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd -X `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREPRODDB }}" `
-            -user="${{ secrets.POSTGREPRODUSERNAME }}" `
-            -password="${{ secrets.POSTGREPRODPASS }}" `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.PG_DATABASE }}" `
+            -user="${{ secrets.PG_USERNAME }}" `
+            -password="${{ secrets.PG_PASSWORD }}" `
             -locations="filesystem:./sql" `
             -validateOnMigrate=true `
             migrate
@@ -88,9 +91,9 @@ jobs:
         shell: pwsh
         run: |
           C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREPRODDB }}" `
-            -user="${{ secrets.POSTGREPRODUSERNAME }}" `
-            -password="${{ secrets.POSTGREPRODPASS }}" `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.PG_DATABASE }}" `
+            -user="${{ secrets.PG_USERNAME }}" `
+            -password="${{ secrets.PG_PASSWORD }}" `
             -locations="filesystem:./sql" `
             info
 
@@ -105,4 +108,5 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "❌ DEPLOYMENT FAILED"
-          Write-Host "Check logs above for error details"
+          Write-Host "   Check logs above for error details"
+          Write-Host "   No changes were committed to database"
