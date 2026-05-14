@@ -1,0 +1,2 @@
+ALTER TABLE sales
+ADD COLUMN customer_name VARCHAR(150);
