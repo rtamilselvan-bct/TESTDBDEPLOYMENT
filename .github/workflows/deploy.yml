@@ -1,39 +1,112 @@
+# .github/workflows/deploy-db.yml
 
-
-name: Flyway Auto Deployment
+name: PostgreSQL Auto Deployment
 
 on:
   push:
     branches:
-      - Development
+      - Development        # triggers when code merged here
+
+  workflow_dispatch:       # manual trigger too
 
 jobs:
-  deploy:
-    runs-on: self-hosted
 
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # ══════════════════════════════════════
+  # JOB 1 — Notify & Validate
+  # ══════════════════════════════════════
+  validate:
+    name: Validate SQL Scripts
+    runs-on: self-hosted    # ✅ runs on YOUR machine
+    labels: [local-postgres]
 
     steps:
-      # Checkout repo
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Download Flyway (Windows version)
-      - name: Install Flyway
+      - name: Check SQL Folder
+        shell: pwsh
         run: |
-          Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-windows-x64.zip" `
-            -OutFile "flyway.zip"
+          if (-not (Test-Path "./sql")) {
+            Write-Error "❌ sql/ folder missing!"
+            exit 1
+          }
+          $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
+          Write-Host "✅ Found $($files.Count) SQL files:"
+          $files | ForEach-Object { Write-Host "   → $($_.Name)" }
 
-          Expand-Archive -Path flyway.zip -DestinationPath .
-
-      # Run Flyway migrations
-      - name: Run Flyway Migration
+      - name: Validate SQL with Flyway
+        shell: pwsh
         run: |
-          .\flyway-9.22.3\flyway.cmd -X `
-            -url="jdbc:postgresql://localhost:5432/postgres" `
+          C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
             -user="${{ secrets.POSTGREDEVUSERNAME }}" `
             -password="${{ secrets.POSTGREDEVPASS }}" `
             -locations="filesystem:./sql" `
+            info
+          Write-Host "✅ Validation complete"
+
+  # ══════════════════════════════════════
+  # JOB 2 — Wait for Manager Approval
+  #         Then Execute on Production
+  # ══════════════════════════════════════
+  deploy-production:
+    name: Deploy to PostgreSQL (Production)
+    runs-on: self-hosted
+    needs: validate           # ✅ runs after validate passes
+    environment: Production   # ✅ waits for manager approval
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Show Files Being Deployed
+        shell: pwsh
+        run: |
+          Write-Host "📋 Scripts to deploy:"
+          Get-ChildItem "./sql" -Filter "*.sql" |
+            Sort-Object Name |
+            ForEach-Object { Write-Host "   → $($_.Name)" }
+
+      - name: Run Flyway Migration
+        shell: pwsh
+        run: |
+          Write-Host "🚀 Running migration on local PostgreSQL..."
+
+          C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd -X `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
+            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
+            -password="${{ secrets.POSTGREDEVPASS }}" `
+            -locations="filesystem:./sql" `
+            -validateOnMigrate=true `
             migrate
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "❌ Migration FAILED!"
+            exit 1
+          }
+
+          Write-Host "✅ Migration completed successfully!"
+
+      - name: Show Final Status
+        shell: pwsh
+        run: |
+          C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
+            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
+            -password="${{ secrets.POSTGREDEVPASS }}" `
+            -locations="filesystem:./sql" `
+            info
+
+          Write-Host ""
+          Write-Host "✅ DEPLOYMENT COMPLETE"
+          Write-Host "   Branch  : ${{ github.ref_name }}"
+          Write-Host "   Commit  : ${{ github.sha }}"
+          Write-Host "   By      : ${{ github.actor }}"
+
+      - name: On Failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "❌ DEPLOYMENT FAILED"
+          Write-Host "   Check logs above for error details"
+          Write-Host "   No changes were committed to database"
