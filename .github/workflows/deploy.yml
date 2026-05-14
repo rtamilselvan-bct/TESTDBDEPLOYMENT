@@ -18,16 +18,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ✅ Install Flyway dynamically
-      - name: Install Flyway
-        run: |
-          Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip" `
-            -OutFile "flyway.zip"
-
-          Expand-Archive -Path flyway.zip -DestinationPath . -Force
-          Rename-Item "flyway-10.15.0" "flyway"
-
       # ✅ Check SQL folder
       - name: Check SQL Folder
         run: |
@@ -35,23 +25,30 @@ jobs:
             Write-Error "sql folder missing!"
             exit 1
           }
+
           $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
           Write-Host "Found $($files.Count) SQL files:"
           $files | ForEach-Object { Write-Host " -> $($_.Name)" }
 
-      # ✅ Validate scripts
+      # ✅ Validate scripts using LOCAL Flyway
       - name: Validate SQL with Flyway
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
+          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
         run: |
-          .\flyway\flyway.cmd `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
-            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
-            -password="${{ secrets.POSTGREDEVPASS }}" `
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          & $flyway `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
 
           Write-Host "Validation complete"
 
-  # ✅ JOB 2 — Deploy (with approval)
+  # ✅ JOB 2 — Deploy
   deploy-production:
     name: Deploy to PostgreSQL (Production)
     runs-on: self-hosted
@@ -62,16 +59,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ✅ Install Flyway again (fresh job)
-      - name: Install Flyway
-        run: |
-          Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip" `
-            -OutFile "flyway.zip"
-
-          Expand-Archive -Path flyway.zip -DestinationPath . -Force
-          Rename-Item "flyway-10.15.0" "flyway"
-
       # ✅ Show scripts
       - name: Show Files Being Deployed
         run: |
@@ -80,15 +67,21 @@ jobs:
             Sort-Object Name |
             ForEach-Object { Write-Host " -> $($_.Name)" }
 
-      # ✅ Run migration
+      # ✅ Run migration using LOCAL Flyway
       - name: Run Flyway Migration
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
+          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
         run: |
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
           Write-Host "Running migration..."
 
-          .\flyway\flyway.cmd -X `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
-            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
-            -password="${{ secrets.POSTGREDEVPASS }}" `
+          & $flyway -X `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             -validateOnMigrate=true `
             migrate
@@ -102,11 +95,17 @@ jobs:
 
       # ✅ Final status
       - name: Show Final Status
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
+          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
         run: |
-          .\flyway\flyway.cmd `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
-            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
-            -password="${{ secrets.POSTGREDEVPASS }}" `
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          & $flyway `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
 
