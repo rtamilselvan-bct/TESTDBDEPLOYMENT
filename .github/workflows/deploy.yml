@@ -1,112 +1,97 @@
-# .github/workflows/deploy-db.yml
-
 name: PostgreSQL Auto Deployment
 
 on:
   push:
     branches:
-      - Development        # triggers when code merged here
+      - Development
 
-  workflow_dispatch:       # manual trigger too
+  workflow_dispatch:
 
 jobs:
 
-  # ══════════════════════════════════════
-  # JOB 1 — Notify & Validate
-  # ══════════════════════════════════════
+  # ✅ JOB 1 — Validate
   validate:
     name: Validate SQL Scripts
-    runs-on: self-hosted    # ✅ runs on YOUR machine
-  
+    runs-on: self-hosted
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Check SQL Folder
-        shell: pwsh
         run: |
           if (-not (Test-Path "./sql")) {
-            Write-Error "❌ sql/ folder missing!"
+            Write-Error "sql folder missing!"
             exit 1
           }
           $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
-          Write-Host "✅ Found $($files.Count) SQL files:"
-          $files | ForEach-Object { Write-Host "   → $($_.Name)" }
+          Write-Host "Found $($files.Count) SQL files:"
+          $files | ForEach-Object { Write-Host " -> $($_.Name)" }
 
       - name: Validate SQL with Flyway
-        shell: pwsh
         run: |
           C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
             -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
             -user="${{ secrets.POSTGREDEVUSERNAME }}" `
-            -password="${{ secrets.PG_PASSWOPOSTGREDEVPASSRD }}" `
+            -password="${{ secrets.POSTGREDEVPASSWORD }}" `
             -locations="filesystem:./sql" `
             info
-          Write-Host "✅ Validation complete"
 
-  # ══════════════════════════════════════
-  # JOB 2 — Wait for Manager Approval
-  #         Then Execute on Production
-  # ══════════════════════════════════════
-  deploy-production:
+          Write-Host "Validation complete"
+
+  # ✅ JOB 2 — Deployment
+  deploy-Production:
     name: Deploy to PostgreSQL (Production)
     runs-on: self-hosted
-    needs: validate           # ✅ runs after validate passes
-    environment: Production   # ✅ waits for manager approval
+    needs: validate
+    environment: Production
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Show Files Being Deployed
-        shell: pwsh
         run: |
-          Write-Host "📋 Scripts to deploy:"
+          Write-Host "Scripts to deploy:"
           Get-ChildItem "./sql" -Filter "*.sql" |
             Sort-Object Name |
-            ForEach-Object { Write-Host "   → $($_.Name)" }
+            ForEach-Object { Write-Host " -> $($_.Name)" }
 
       - name: Run Flyway Migration
-        shell: pwsh
         run: |
-          Write-Host "🚀 Running migration on local PostgreSQL..."
+          Write-Host "Running migration..."
 
           C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd -X `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.PG_DATABASE }}" `
-            -user="${{ secrets.PG_USERNAME }}" `
-            -password="${{ secrets.PG_PASSWORD }}" `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
+            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
+            -password="${{ secrets.POSTGREDEVPASSWORD }}" `
             -locations="filesystem:./sql" `
             -validateOnMigrate=true `
             migrate
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "❌ Migration FAILED!"
+            Write-Error "Migration FAILED!"
             exit 1
           }
 
-          Write-Host "✅ Migration completed successfully!"
+          Write-Host "Migration completed successfully!"
 
       - name: Show Final Status
-        shell: pwsh
         run: |
           C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.PG_DATABASE }}" `
-            -user="${{ secrets.PG_USERNAME }}" `
-            -password="${{ secrets.PG_PASSWORD }}" `
+            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
+            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
+            -password="${{ secrets.POSTGREDEVPASSWORD }}" `
             -locations="filesystem:./sql" `
             info
 
-          Write-Host ""
-          Write-Host "✅ DEPLOYMENT COMPLETE"
-          Write-Host "   Branch  : ${{ github.ref_name }}"
-          Write-Host "   Commit  : ${{ github.sha }}"
-          Write-Host "   By      : ${{ github.actor }}"
+          Write-Host "DEPLOYMENT COMPLETE"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "By: ${{ github.actor }}"
 
       - name: On Failure
         if: failure()
-        shell: pwsh
         run: |
-          Write-Host "❌ DEPLOYMENT FAILED"
-          Write-Host "   Check logs above for error details"
-          Write-Host "   No changes were committed to database"
+          Write-Host "DEPLOYMENT FAILED"
+          Write-Host "Check logs above"
