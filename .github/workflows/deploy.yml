@@ -9,46 +9,49 @@ on:
 
 jobs:
 
-  # ══════════════════════════════════════
-  # JOB 1 — Validate SQL Scripts
-  # ══════════════════════════════════════
+  # ✅ JOB 1 — Validate
   validate:
     name: Validate SQL Scripts
-    runs-on: [self-hosted, local-postgres]   # ✅ FIXED
+    runs-on: self-hosted
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # ✅ Check SQL folder
       - name: Check SQL Folder
-        shell: pwsh
         run: |
           if (-not (Test-Path "./sql")) {
-            Write-Error "❌ sql/ folder missing!"
+            Write-Error "sql folder missing!"
             exit 1
           }
-          $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
-          Write-Host "✅ Found $($files.Count) SQL files:"
-          $files | ForEach-Object { Write-Host "   → $($_.Name)" }
 
+          $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
+          Write-Host "Found $($files.Count) SQL files:"
+          $files | ForEach-Object { Write-Host " -> $($_.Name)" }
+
+      # ✅ Validate scripts using LOCAL Flyway
       - name: Validate SQL with Flyway
-        shell: pwsh
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
+          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
         run: |
-          C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}" `
-            -user="${{ secrets.POSTGREDEVUSERNAME }}" `
-            -password="${{ secrets.POSTGREDEVPASS }}" `
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          & $flyway `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
 
-          Write-Host "✅ Validation complete"
+          Write-Host "Validation complete"
 
-  # ══════════════════════════════════════
-  # JOB 2 — Deploy to Production
-  # ══════════════════════════════════════
+  # ✅ JOB 2 — Deploy
   deploy-production:
     name: Deploy to PostgreSQL (Production)
-    runs-on: [self-hosted, local-postgres]   # ✅ FIXED
+    runs-on: self-hosted
     needs: validate
     environment: Production
 
@@ -56,53 +59,64 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # ✅ Show scripts
       - name: Show Files Being Deployed
-        shell: pwsh
         run: |
-          Write-Host "📋 Scripts to deploy:"
+          Write-Host "Scripts to deploy:"
           Get-ChildItem "./sql" -Filter "*.sql" |
             Sort-Object Name |
-            ForEach-Object { Write-Host "   → $($_.Name)" }
+            ForEach-Object { Write-Host " -> $($_.Name)" }
 
+      # ✅ Run migration using LOCAL Flyway
       - name: Run Flyway Migration
-        shell: pwsh
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
+          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
         run: |
-          Write-Host "🚀 Running migration on PostgreSQL..."
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
 
-          C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd -X `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREPRODDB }}" `
-            -user="${{ secrets.POSTGREPRODUSERNAME }}" `
-            -password="${{ secrets.POSTGREPRODPASS }}" `
+          Write-Host "Running migration..."
+
+          & $flyway -X `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             -validateOnMigrate=true `
             migrate
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "❌ Migration FAILED!"
+            Write-Error "Migration FAILED!"
             exit 1
           }
 
-          Write-Host "✅ Migration completed successfully!"
+          Write-Host "Migration completed successfully!"
 
+      # ✅ Final status
       - name: Show Final Status
-        shell: pwsh
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
+          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
         run: |
-          C:\Users\tr117372\flyway\flyway-10.15.0\flyway.cmd `
-            -url="jdbc:postgresql://localhost:5432/${{ secrets.POSTGREPRODDB }}" `
-            -user="${{ secrets.POSTGREPRODUSERNAME }}" `
-            -password="${{ secrets.POSTGREPRODPASS }}" `
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          & $flyway `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
 
-          Write-Host ""
-          Write-Host "✅ DEPLOYMENT COMPLETE"
-          Write-Host "   Branch  : ${{ github.ref_name }}"
-          Write-Host "   Commit  : ${{ github.sha }}"
-          Write-Host "   By      : ${{ github.actor }}"
+          Write-Host "DEPLOYMENT COMPLETE"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "By: ${{ github.actor }}"
 
+      # ✅ Failure handler
       - name: On Failure
         if: failure()
-        shell: pwsh
         run: |
-          Write-Host "❌ DEPLOYMENT FAILED"
-          Write-Host "Check logs above for error details"
+          Write-Host "DEPLOYMENT FAILED"
+          Write-Host "Check logs above"

@@ -1,5 +1,5 @@
 CREATE TABLE sales (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    id BIGSERIAL PRIMARY KEY,
     product_name VARCHAR(150) NOT NULL,
     quantity INT NOT NULL,
     price DECIMAL(10,2) NOT NULL,
