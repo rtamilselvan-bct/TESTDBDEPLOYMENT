@@ -15,29 +15,84 @@ jobs:
     runs-on: windows-latest
 
     steps:
+
+      # =========================
+      # CHECKOUT
+      # =========================
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ✅ Check SQL folder
-      - name: Check SQL Folder
+      # =========================
+      # INSTALL FLYWAY
+      # =========================
+      - name: Install Flyway
+        shell: powershell
         run: |
+
+          Write-Host "Downloading Flyway..."
+
+          Invoke-WebRequest `
+            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-windows-x64.zip" `
+            -OutFile "flyway.zip"
+
+          Write-Host "Extracting Flyway..."
+
+          Expand-Archive `
+            -Path "flyway.zip" `
+            -DestinationPath "./flyway"
+
+          $flyway = Get-ChildItem `
+                        -Path "./flyway" `
+                        -Recurse `
+                        -Filter "flyway.cmd" |
+                     Select-Object -First 1
+
+          if (-not $flyway) {
+            Write-Error "flyway.cmd not found!"
+            exit 1
+          }
+
+          Write-Host "Flyway installed:"
+          Write-Host $flyway.FullName
+
+      # =========================
+      # CHECK SQL FOLDER
+      # =========================
+      - name: Check SQL Folder
+        shell: powershell
+        run: |
+
           if (-not (Test-Path "./sql")) {
             Write-Error "sql folder missing!"
             exit 1
           }
 
           $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
-          Write-Host "Found $($files.Count) SQL files:"
-          $files | ForEach-Object { Write-Host " -> $($_.Name)" }
 
-      # ✅ Validate scripts using LOCAL Flyway
+          Write-Host "Found $($files.Count) SQL files:"
+
+          $files | ForEach-Object {
+            Write-Host " -> $($_.Name)"
+          }
+
+      # =========================
+      # VALIDATE SQL
+      # =========================
       - name: Validate SQL with Flyway
+        shell: powershell
         env:
           DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
           DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
           DB_PASS: ${{ secrets.POSTGREDEVPASS }}
+
         run: |
-          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          $flyway = (
+            Get-ChildItem "./flyway" `
+              -Recurse `
+              -Filter "flyway.cmd" |
+            Select-Object -First 1
+          ).FullName
 
           & $flyway `
             -url="$env:DB_URL" `
@@ -45,6 +100,11 @@ jobs:
             -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Validation FAILED!"
+            exit 1
+          }
 
           Write-Host "Validation complete"
 
@@ -56,25 +116,65 @@ jobs:
     environment: Production
 
     steps:
+
+      # =========================
+      # CHECKOUT
+      # =========================
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ✅ Show scripts
-      - name: Show Files Being Deployed
+      # =========================
+      # INSTALL FLYWAY
+      # =========================
+      - name: Install Flyway
+        shell: powershell
         run: |
+
+          Write-Host "Downloading Flyway..."
+
+          Invoke-WebRequest `
+            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-windows-x64.zip" `
+            -OutFile "flyway.zip"
+
+          Write-Host "Extracting Flyway..."
+
+          Expand-Archive `
+            -Path "flyway.zip" `
+            -DestinationPath "./flyway"
+
+      # =========================
+      # SHOW FILES
+      # =========================
+      - name: Show Files Being Deployed
+        shell: powershell
+        run: |
+
           Write-Host "Scripts to deploy:"
+
           Get-ChildItem "./sql" -Filter "*.sql" |
             Sort-Object Name |
-            ForEach-Object { Write-Host " -> $($_.Name)" }
+            ForEach-Object {
+              Write-Host " -> $($_.Name)"
+            }
 
-      # ✅ Run migration using LOCAL Flyway
+      # =========================
+      # RUN MIGRATION
+      # =========================
       - name: Run Flyway Migration
+        shell: powershell
         env:
           DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
           DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
           DB_PASS: ${{ secrets.POSTGREDEVPASS }}
+
         run: |
-          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          $flyway = (
+            Get-ChildItem "./flyway" `
+              -Recurse `
+              -Filter "flyway.cmd" |
+            Select-Object -First 1
+          ).FullName
 
           Write-Host "Running migration..."
 
@@ -93,14 +193,24 @@ jobs:
 
           Write-Host "Migration completed successfully!"
 
-      # ✅ Final status
+      # =========================
+      # FINAL STATUS
+      # =========================
       - name: Show Final Status
+        shell: powershell
         env:
           DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
           DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
           DB_PASS: ${{ secrets.POSTGREDEVPASS }}
+
         run: |
-          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+
+          $flyway = (
+            Get-ChildItem "./flyway" `
+              -Recurse `
+              -Filter "flyway.cmd" |
+            Select-Object -First 1
+          ).FullName
 
           & $flyway `
             -url="$env:DB_URL" `
@@ -109,14 +219,22 @@ jobs:
             -locations="filesystem:./sql" `
             info
 
+          Write-Host "======================================="
           Write-Host "DEPLOYMENT COMPLETE"
+          Write-Host "======================================="
           Write-Host "Branch: ${{ github.ref_name }}"
           Write-Host "Commit: ${{ github.sha }}"
           Write-Host "By: ${{ github.actor }}"
 
-      # ✅ Failure handler
+      # =========================
+      # FAILURE HANDLER
+      # =========================
       - name: On Failure
         if: failure()
+        shell: powershell
         run: |
+
+          Write-Host "======================================="
           Write-Host "DEPLOYMENT FAILED"
+          Write-Host "======================================="
           Write-Host "Check logs above"
