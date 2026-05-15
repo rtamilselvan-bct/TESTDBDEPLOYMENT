@@ -7,160 +7,94 @@ on:
   workflow_dispatch:
 
 jobs:
-
 # =========================================================
 # VALIDATION JOB
 # =========================================================
   validate:
     name: Validate SQL Scripts
-    runs-on: self-hosted        # ✅ YOUR local machine
+    runs-on: self-hosted
+    env:
+      DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+      DB_PASS: ${{ secrets.POSTGREDEVPASS }}
+      DB_URL: "jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}"
 
     steps:
-
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ── Check SQL Files ──────────────────────────────────
-      - name: Check SQL Folder
-        shell: powershell
-        run: |
-          if (-not (Test-Path "./sql")) {
-            Write-Error "sql folder missing!"
-            exit 1
-          }
-          $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
-          Write-Host "Found $($files.Count) SQL files:"
-          $files | ForEach-Object { Write-Host "  -> $($_.Name)" }
+      # ── Download & Setup Flyway ──────────────────────────
+      - name: Install Flyway
+        uses: red-gate/setup-flyway@v3
+        with:
+          version: '10.15.0' # Matches your original version
+          edition: 'community'
+          i-agree-to-the-eula: true
 
-      # ── Test PostgreSQL Connection ────────────────────────
       - name: Test PostgreSQL Connection
         shell: powershell
         run: |
-          Write-Host "Testing PostgreSQL on localhost:5432..."
-          $test = Test-NetConnection `
-            -ComputerName localhost `
-            -Port 5432 `
-            -WarningAction SilentlyContinue
-
+          $test = Test-NetConnection -ComputerName localhost -Port 5432 -WarningAction SilentlyContinue
           if (-not $test.TcpTestSucceeded) {
             Write-Error "PostgreSQL NOT reachable on localhost:5432"
-            Write-Host "Make sure PostgreSQL is running on your machine!"
             exit 1
           }
-          Write-Host "PostgreSQL reachable on localhost:5432"
 
-      # ── Validate SQL with Flyway ──────────────────────────
       - name: Validate SQL with Flyway
         shell: powershell
         run: |
-          # ✅ Use locally installed Flyway — no download needed
-          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
-          $user   = '${{ secrets.POSTGREDEVUSERNAME }}'
-          $pass   = '${{ secrets.POSTGREDEVPASS }}'
-          $db     = '${{ secrets.POSTGREDEVDB }}'
-          $url    = "jdbc:postgresql://localhost:5432/$db"
-
-          Write-Host "Flyway : $flyway"
-          Write-Host "URL    : $url"
-          Write-Host "User   : $user"
-
-          & $flyway `
-            -url="$url" `
-            -user="$user" `
-            -password="$pass" `
+          # Use 'flyway' directly as it is now in the PATH
+          flyway `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
-
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Validation failed!"
-            exit 1
-          }
-          Write-Host "Validation passed"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # =========================================================
 # DEPLOYMENT JOB
 # =========================================================
   deploy-production:
     name: Deploy to PostgreSQL
-    runs-on: self-hosted        # ✅ YOUR local machine
+    runs-on: self-hosted
     needs: validate
-    environment: Production     # manager approval
+    environment: Production
+    env:
+      DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
+      DB_PASS: ${{ secrets.POSTGREDEVPASS }}
+      DB_URL: "jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}"
 
     steps:
-
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ── Show Files Being Deployed ─────────────────────────
-      - name: Show SQL Files
-        shell: powershell
-        run: |
-          Write-Host "SQL files to deploy:"
-          Get-ChildItem "./sql" -Filter "*.sql" |
-            Sort-Object Name |
-            ForEach-Object { Write-Host "  -> $($_.Name)" }
+      # ── Download & Setup Flyway (Required in each job) ───
+      - name: Install Flyway
+        uses: red-gate/setup-flyway@v3
+        with:
+          version: '10.15.0'
+          edition: 'community'
+          i-agree-to-the-eula: true
 
-      # ── Run Migration ─────────────────────────────────────
       - name: Run Flyway Migration
         shell: powershell
         run: |
-          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
-          $user   = '${{ secrets.POSTGREDEVUSERNAME }}'
-          $pass   = '${{ secrets.POSTGREDEVPASS }}'
-          $db     = '${{ secrets.POSTGREDEVDB }}'
-          $url    = "jdbc:postgresql://localhost:5432/$db"
-
-          Write-Host "======================================="
-          Write-Host "STARTING MIGRATION"
-          Write-Host "URL    : $url"
-          Write-Host "User   : $user"
-          Write-Host "======================================="
-
-          & $flyway -X `
-            -url="$url" `
-            -user="$user" `
-            -password="$pass" `
+          Write-Output "STARTING MIGRATION"
+          flyway -X `
+            -url="$env:DB_URL" `
+            -user="$env:DB_USER" `
+            -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             -validateOnMigrate=true `
             -baselineOnMigrate=true `
             -cleanDisabled=true `
             migrate
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Migration FAILED!"
-            exit 1
-          }
-          Write-Host "Migration SUCCESS!"
-
-      # ── Final Status ──────────────────────────────────────
-      - name: Final Status
-        shell: powershell
-        run: |
-          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
-          $user   = '${{ secrets.POSTGREDEVUSERNAME }}'
-          $pass   = '${{ secrets.POSTGREDEVPASS }}'
-          $db     = '${{ secrets.POSTGREDEVDB }}'
-          $url    = "jdbc:postgresql://localhost:5432/$db"
-
-          & $flyway `
-            -url="$url" `
-            -user="$user" `
-            -password="$pass" `
-            -locations="filesystem:./sql" `
-            info
-
-          Write-Host "======================================="
-          Write-Host "DEPLOYMENT COMPLETED SUCCESSFULLY"
-          Write-Host "Branch : ${{ github.ref_name }}"
-          Write-Host "Commit : ${{ github.sha }}"
-          Write-Host "By     : ${{ github.actor }}"
-          Write-Host "======================================="
-
-      # ── On Failure ────────────────────────────────────────
       - name: On Failure
         if: failure()
         shell: powershell
         run: |
-          Write-Host "======================================="
-          Write-Host "DEPLOYMENT FAILED — check logs above"
-          Write-Host "======================================="
+          Write-Output "---------------------------------------"
+          Write-Output "DEPLOYMENT FAILED"
+          Write-Output "---------------------------------------"
