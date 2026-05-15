@@ -12,7 +12,7 @@ jobs:
   # ✅ JOB 1 — Validate
   validate:
     name: Validate SQL Scripts
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout Code
