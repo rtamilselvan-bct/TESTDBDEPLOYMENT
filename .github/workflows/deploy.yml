@@ -9,6 +9,9 @@ on:
 
 jobs:
 
+# =========================================================
+# VALIDATION JOB
+# =========================================================
   validate:
     name: Validate SQL Scripts
     runs-on: windows-latest
@@ -18,6 +21,9 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # -------------------------
+      # CHECK SQL FILES
+      # -------------------------
       - name: Check SQL Folder
         shell: powershell
         run: |
@@ -30,17 +36,19 @@ jobs:
           $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
 
           Write-Host "Found $($files.Count) SQL files:"
+          $files | ForEach-Object { Write-Host " -> $($_.Name)" }
 
-          $files | ForEach-Object {
-            Write-Host " -> $($_.Name)"
-          }
-
+      # -------------------------
+      # INSTALL FLYWAY
+      # -------------------------
       - name: Install Flyway
         shell: powershell
         run: |
 
+          Write-Host "Downloading Flyway 10.15.0..."
+
           Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/12.5.0/flyway-commandline-12.5.0-windows-x64.zip" `
+            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip" `
             -OutFile "flyway.zip"
 
           Expand-Archive `
@@ -55,9 +63,12 @@ jobs:
 
           echo "FLYWAY_CMD=$($flyway.FullName)" >> $env:GITHUB_ENV
 
-          Write-Host "Flyway Installed:"
+          Write-Host "Flyway installed at:"
           Write-Host $flyway.FullName
 
+      # -------------------------
+      # VALIDATE SQL (FLYWAY)
+      # -------------------------
       - name: Validate SQL with Flyway
         shell: powershell
         env:
@@ -74,8 +85,18 @@ jobs:
             -locations="filesystem:./sql" `
             info
 
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Validation failed!"
+            exit 1
+          }
+
+          Write-Host "Validation completed successfully"
+
+# =========================================================
+# DEPLOYMENT JOB
+# =========================================================
   deploy-production:
-    name: Deploy PostgreSQL
+    name: Deploy to PostgreSQL (Production)
     runs-on: windows-latest
     needs: validate
     environment: Production
@@ -85,12 +106,17 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # -------------------------
+      # INSTALL FLYWAY
+      # -------------------------
       - name: Install Flyway
         shell: powershell
         run: |
 
+          Write-Host "Downloading Flyway 10.15.0..."
+
           Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/12.5.0/flyway-commandline-12.5.0-windows-x64.zip" `
+            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip" `
             -OutFile "flyway.zip"
 
           Expand-Archive `
@@ -105,6 +131,21 @@ jobs:
 
           echo "FLYWAY_CMD=$($flyway.FullName)" >> $env:GITHUB_ENV
 
+      # -------------------------
+      # SHOW FILES
+      # -------------------------
+      - name: Show Files
+        shell: powershell
+        run: |
+
+          Write-Host "SQL Files to deploy:"
+          Get-ChildItem "./sql" -Filter "*.sql" |
+            Sort-Object Name |
+            ForEach-Object { Write-Host " -> $($_.Name)" }
+
+      # -------------------------
+      # RUN MIGRATION
+      # -------------------------
       - name: Run Flyway Migration
         shell: powershell
         env:
@@ -114,7 +155,7 @@ jobs:
 
         run: |
 
-          Write-Host "Starting Flyway Migration..."
+          Write-Host "Starting Migration..."
 
           & "$env:FLYWAY_CMD" -X `
             -url="$env:DB_URL" `
@@ -127,12 +168,15 @@ jobs:
             migrate
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "Migration FAILED!"
+            Write-Error "Migration failed!"
             exit 1
           }
 
-          Write-Host "Migration completed successfully!"
+          Write-Host "Migration successful!"
 
+      # -------------------------
+      # FINAL STATUS
+      # -------------------------
       - name: Flyway Info
         shell: powershell
         env:
@@ -149,14 +193,21 @@ jobs:
             -locations="filesystem:./sql" `
             info
 
-      - name: Deployment Status
+          Write-Host "======================================="
+          Write-Host "DEPLOYMENT COMPLETED SUCCESSFULLY"
+          Write-Host "======================================="
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "Actor: ${{ github.actor }}"
+
+      # -------------------------
+      # FAILURE HANDLER
+      # -------------------------
+      - name: On Failure
+        if: failure()
         shell: powershell
         run: |
 
           Write-Host "======================================="
-          Write-Host "DEPLOYMENT COMPLETED SUCCESSFULLY"
+          Write-Host "DEPLOYMENT FAILED"
           Write-Host "======================================="
-
-          Write-Host "Branch : ${{ github.ref_name }}"
-          Write-Host "Commit : ${{ github.sha }}"
-          Write-Host "Actor  : ${{ github.actor }}"
