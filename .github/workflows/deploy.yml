@@ -12,7 +12,7 @@ jobs:
   # ✅ JOB 1 — Validate
   validate:
     name: Validate SQL Scripts
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
