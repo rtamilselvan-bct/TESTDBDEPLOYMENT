@@ -22,34 +22,36 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ── Download & Setup Flyway ──────────────────────────
-      - name: Install Flyway
-        uses: red-gate/setup-flyway@v3
-        with:
-          version: '10.15.0' # Matches your original version
-          edition: 'community'
-          i-agree-to-the-eula: true
-
-      - name: Test PostgreSQL Connection
+      - name: Download and Setup Flyway
         shell: powershell
         run: |
-          $test = Test-NetConnection -ComputerName localhost -Port 5432 -WarningAction SilentlyContinue
-          if (-not $test.TcpTestSucceeded) {
-            Write-Error "PostgreSQL NOT reachable on localhost:5432"
-            exit 1
-          }
+          $url = "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip"
+          $dest = "$env:TEMP\flyway.zip"
+          $extractPath = "$env:USERPROFILE\flyway-temp"
+          
+          Write-Output "Downloading Flyway..."
+          Invoke-WebRequest -Uri $url -OutFile $dest
+          
+          if (Test-Path $extractPath) { Remove-Item $extractPath -Recurse -Force }
+          
+          Write-Output "Extracting Flyway..."
+          Expand-Archive -Path $dest -DestinationPath $extractPath
+          
+          # Add to the current session path
+          $flywayBin = Get-ChildItem -Path "$extractPath\flyway-*" -Directory | Select-Object -First 1
+          echo "$($flywayBin.FullName)" >> $env:GITHUB_PATH
+          Write-Output "Flyway added to path"
 
       - name: Validate SQL with Flyway
         shell: powershell
         run: |
-          # Use 'flyway' directly as it is now in the PATH
+          # Wait a second for PATH to refresh
           flyway `
             -url="$env:DB_URL" `
             -user="$env:DB_USER" `
             -password="$env:DB_PASS" `
             -locations="filesystem:./sql" `
             info
-          if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # =========================================================
 # DEPLOYMENT JOB
@@ -68,18 +70,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ── Download & Setup Flyway (Required in each job) ───
-      - name: Install Flyway
-        uses: red-gate/setup-flyway@v3
-        with:
-          version: '10.15.0'
-          edition: 'community'
-          i-agree-to-the-eula: true
+      - name: Download and Setup Flyway
+        shell: powershell
+        run: |
+          $url = "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip"
+          $dest = "$env:TEMP\flyway_deploy.zip"
+          $extractPath = "$env:USERPROFILE\flyway-temp-deploy"
+          Invoke-WebRequest -Uri $url -OutFile $dest
+          if (Test-Path $extractPath) { Remove-Item $extractPath -Recurse -Force }
+          Expand-Archive -Path $dest -DestinationPath $extractPath
+          $flywayBin = Get-ChildItem -Path "$extractPath\flyway-*" -Directory | Select-Object -First 1
+          echo "$($flywayBin.FullName)" >> $env:GITHUB_PATH
 
       - name: Run Flyway Migration
         shell: powershell
         run: |
-          Write-Output "STARTING MIGRATION"
           flyway -X `
             -url="$env:DB_URL" `
             -user="$env:DB_USER" `
@@ -89,7 +94,6 @@ jobs:
             -baselineOnMigrate=true `
             -cleanDisabled=true `
             migrate
-          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: On Failure
         if: failure()
