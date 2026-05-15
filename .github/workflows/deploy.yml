@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - Development
-
   workflow_dispatch:
 
 jobs:
@@ -14,74 +13,61 @@ jobs:
 # =========================================================
   validate:
     name: Validate SQL Scripts
-    runs-on: windows-latest
+    runs-on: self-hosted        # ✅ YOUR local machine
 
     steps:
 
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # -------------------------
-      # CHECK SQL FILES
-      # -------------------------
+      # ── Check SQL Files ──────────────────────────────────
       - name: Check SQL Folder
         shell: powershell
         run: |
-
           if (-not (Test-Path "./sql")) {
             Write-Error "sql folder missing!"
             exit 1
           }
-
           $files = Get-ChildItem "./sql" -Filter "*.sql" | Sort-Object Name
-
           Write-Host "Found $($files.Count) SQL files:"
-          $files | ForEach-Object { Write-Host " -> $($_.Name)" }
+          $files | ForEach-Object { Write-Host "  -> $($_.Name)" }
 
-      # -------------------------
-      # INSTALL FLYWAY
-      # -------------------------
-      - name: Install Flyway
+      # ── Test PostgreSQL Connection ────────────────────────
+      - name: Test PostgreSQL Connection
         shell: powershell
         run: |
+          Write-Host "Testing PostgreSQL on localhost:5432..."
+          $test = Test-NetConnection `
+            -ComputerName localhost `
+            -Port 5432 `
+            -WarningAction SilentlyContinue
 
-          Write-Host "Downloading Flyway 10.15.0..."
+          if (-not $test.TcpTestSucceeded) {
+            Write-Error "PostgreSQL NOT reachable on localhost:5432"
+            Write-Host "Make sure PostgreSQL is running on your machine!"
+            exit 1
+          }
+          Write-Host "PostgreSQL reachable on localhost:5432"
 
-          Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip" `
-            -OutFile "flyway.zip"
-
-          Expand-Archive `
-            -Path "flyway.zip" `
-            -DestinationPath "./flyway"
-
-          $flyway = Get-ChildItem `
-                        -Path "./flyway" `
-                        -Recurse `
-                        -Filter "flyway.cmd" |
-                     Select-Object -First 1
-
-          echo "FLYWAY_CMD=$($flyway.FullName)" >> $env:GITHUB_ENV
-
-          Write-Host "Flyway installed at:"
-          Write-Host $flyway.FullName
-
-      # -------------------------
-      # VALIDATE SQL (FLYWAY)
-      # -------------------------
+      # ── Validate SQL with Flyway ──────────────────────────
       - name: Validate SQL with Flyway
         shell: powershell
-        env:
-          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
-          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
-          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
-
         run: |
+          # ✅ Use locally installed Flyway — no download needed
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+          $user   = '${{ secrets.POSTGREDEVUSERNAME }}'
+          $pass   = '${{ secrets.POSTGREDEVPASS }}'
+          $db     = '${{ secrets.POSTGREDEVDB }}'
+          $url    = "jdbc:postgresql://localhost:5432/$db"
 
-          & "$env:FLYWAY_CMD" `
-            -url="$env:DB_URL" `
-            -user="$env:DB_USER" `
-            -password="$env:DB_PASS" `
+          Write-Host "Flyway : $flyway"
+          Write-Host "URL    : $url"
+          Write-Host "User   : $user"
+
+          & $flyway `
+            -url="$url" `
+            -user="$user" `
+            -password="$pass" `
             -locations="filesystem:./sql" `
             info
 
@@ -89,78 +75,51 @@ jobs:
             Write-Error "Validation failed!"
             exit 1
           }
-
-          Write-Host "Validation completed successfully"
+          Write-Host "Validation passed"
 
 # =========================================================
 # DEPLOYMENT JOB
 # =========================================================
   deploy-production:
-    name: Deploy to PostgreSQL (Production)
-    runs-on: windows-latest
+    name: Deploy to PostgreSQL
+    runs-on: self-hosted        # ✅ YOUR local machine
     needs: validate
-    environment: Production
+    environment: Production     # manager approval
 
     steps:
 
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # -------------------------
-      # INSTALL FLYWAY
-      # -------------------------
-      - name: Install Flyway
+      # ── Show Files Being Deployed ─────────────────────────
+      - name: Show SQL Files
         shell: powershell
         run: |
-
-          Write-Host "Downloading Flyway 10.15.0..."
-
-          Invoke-WebRequest `
-            -Uri "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.15.0/flyway-commandline-10.15.0-windows-x64.zip" `
-            -OutFile "flyway.zip"
-
-          Expand-Archive `
-            -Path "flyway.zip" `
-            -DestinationPath "./flyway"
-
-          $flyway = Get-ChildItem `
-                        -Path "./flyway" `
-                        -Recurse `
-                        -Filter "flyway.cmd" |
-                     Select-Object -First 1
-
-          echo "FLYWAY_CMD=$($flyway.FullName)" >> $env:GITHUB_ENV
-
-      # -------------------------
-      # SHOW FILES
-      # -------------------------
-      - name: Show Files
-        shell: powershell
-        run: |
-
-          Write-Host "SQL Files to deploy:"
+          Write-Host "SQL files to deploy:"
           Get-ChildItem "./sql" -Filter "*.sql" |
             Sort-Object Name |
-            ForEach-Object { Write-Host " -> $($_.Name)" }
+            ForEach-Object { Write-Host "  -> $($_.Name)" }
 
-      # -------------------------
-      # RUN MIGRATION
-      # -------------------------
+      # ── Run Migration ─────────────────────────────────────
       - name: Run Flyway Migration
         shell: powershell
-        env:
-          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
-          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
-          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
-
         run: |
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+          $user   = '${{ secrets.POSTGREDEVUSERNAME }}'
+          $pass   = '${{ secrets.POSTGREDEVPASS }}'
+          $db     = '${{ secrets.POSTGREDEVDB }}'
+          $url    = "jdbc:postgresql://localhost:5432/$db"
 
-          Write-Host "Starting Migration..."
+          Write-Host "======================================="
+          Write-Host "STARTING MIGRATION"
+          Write-Host "URL    : $url"
+          Write-Host "User   : $user"
+          Write-Host "======================================="
 
-          & "$env:FLYWAY_CMD" -X `
-            -url="$env:DB_URL" `
-            -user="$env:DB_USER" `
-            -password="$env:DB_PASS" `
+          & $flyway -X `
+            -url="$url" `
+            -user="$user" `
+            -password="$pass" `
             -locations="filesystem:./sql" `
             -validateOnMigrate=true `
             -baselineOnMigrate=true `
@@ -168,46 +127,40 @@ jobs:
             migrate
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "Migration failed!"
+            Write-Error "Migration FAILED!"
             exit 1
           }
+          Write-Host "Migration SUCCESS!"
 
-          Write-Host "Migration successful!"
-
-      # -------------------------
-      # FINAL STATUS
-      # -------------------------
-      - name: Flyway Info
+      # ── Final Status ──────────────────────────────────────
+      - name: Final Status
         shell: powershell
-        env:
-          DB_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGREDEVDB }}
-          DB_USER: ${{ secrets.POSTGREDEVUSERNAME }}
-          DB_PASS: ${{ secrets.POSTGREDEVPASS }}
-
         run: |
+          $flyway = "C:\Users\tr117372\flyway\flyway\flyway-10.15.0\flyway.cmd"
+          $user   = '${{ secrets.POSTGREDEVUSERNAME }}'
+          $pass   = '${{ secrets.POSTGREDEVPASS }}'
+          $db     = '${{ secrets.POSTGREDEVDB }}'
+          $url    = "jdbc:postgresql://localhost:5432/$db"
 
-          & "$env:FLYWAY_CMD" `
-            -url="$env:DB_URL" `
-            -user="$env:DB_USER" `
-            -password="$env:DB_PASS" `
+          & $flyway `
+            -url="$url" `
+            -user="$user" `
+            -password="$pass" `
             -locations="filesystem:./sql" `
             info
 
           Write-Host "======================================="
           Write-Host "DEPLOYMENT COMPLETED SUCCESSFULLY"
+          Write-Host "Branch : ${{ github.ref_name }}"
+          Write-Host "Commit : ${{ github.sha }}"
+          Write-Host "By     : ${{ github.actor }}"
           Write-Host "======================================="
-          Write-Host "Branch: ${{ github.ref_name }}"
-          Write-Host "Commit: ${{ github.sha }}"
-          Write-Host "Actor: ${{ github.actor }}"
 
-      # -------------------------
-      # FAILURE HANDLER
-      # -------------------------
+      # ── On Failure ────────────────────────────────────────
       - name: On Failure
         if: failure()
         shell: powershell
         run: |
-
           Write-Host "======================================="
-          Write-Host "DEPLOYMENT FAILED"
+          Write-Host "DEPLOYMENT FAILED — check logs above"
           Write-Host "======================================="
